@@ -1,0 +1,66 @@
+#!/bin/sh
+
+curl -sL https://raw.githubusercontent.com/hsbmaulana/shlib/1.0.0/bin/run | sh -s lsof ps uniq egrep awk sed || exit 1
+
+usage() { echo "Usage: $0 [-c <tcp|udp>] [-b <all|port=...|name=...>]"; exit 1; }
+tcp() { on=$1; of=$(lsof -iTCP${on:-''} -P -n | egrep '(ESTABLISHED|LISTEN)' | awk '$2 ~ /^[0-9]+$/ {print $2}' | uniq | sed -z 's/\n/,/g;s/,$//'); if [ "$of" ]; then ps --pid "$of" -o ppid,pid,cmd,comm,user,group; fi; }
+udp() { on=$1; of=$(lsof -iUDP${on:-''} -P -n | egrep -v '(127|::1)' | awk '$2 ~ /^[0-9]+$/ {print $2}' | uniq | sed -z 's/\n/,/g;s/,$//'); if [ "$of" ]; then ps --pid "$of" -o ppid,pid,cmd,comm,user,group; fi; }
+contexttcp() { lsof -iTCP -P -n | egrep '(ESTABLISHED|LISTEN)' | awk '$1 ~ /'$1'/ {print $9}'; }
+contextudp() { lsof -iUDP -P -n | egrep -v '(127|::1)' | awk '$1 ~ /'$1'/ {print $9}'; }
+
+connection=
+
+while getopts "c:b:h" option
+do
+    case "$option" in
+
+        'c')
+            if [ $OPTARG = 'tcp' -o $OPTARG = 'udp' ]
+            then
+                connection=$OPTARG
+            else
+                usage
+            fi
+            ;;
+
+        'b')
+            connection="${connection:=tcp}"
+            by=$(echo $OPTARG | egrep -o '^[a-z]+')
+            port=$(echo $OPTARG | egrep -o '[0-9]+$')
+            name=$(echo $OPTARG | egrep -o '[a-z]+$')
+
+            if [ $connection = 'tcp' -a $by = 'all' ]
+            then
+                tcp
+                exit 1
+            elif [ $connection = 'udp' -a $by = 'all' ]
+            then
+                udp
+                exit 1
+            elif [ $connection = 'tcp' -a $by = 'port' -a $port ]
+            then
+                tcp ":$port"
+                exit 1
+            elif [ $connection = 'udp' -a $by = 'port' -a $port ]
+            then
+                udp ":$port"
+                exit 1
+            elif [ $connection = 'tcp' -a $by = 'name' -a $name ]
+            then
+                contexttcp "$name"
+                exit 1
+            elif [ $connection = 'udp' -a $by = 'name' -a $name ]
+            then
+                contextudp "$name"
+                exit 1
+            else
+                usage
+            fi
+            ;;
+
+        'h')
+            usage
+            ;;
+
+    esac
+done
